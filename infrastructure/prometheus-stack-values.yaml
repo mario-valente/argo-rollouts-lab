@@ -1,0 +1,225 @@
+# kube-prometheus-stack Helm Values
+# Chart: prometheus-community/kube-prometheus-stack
+
+# Global settings
+fullnameOverride: prometheus
+
+# Prometheus configuration
+prometheus:
+  enabled: true
+
+  prometheusSpec:
+    # Scrape all ServiceMonitors regardless of labels
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+
+    # Retention
+    retention: 7d
+    retentionSize: "10GB"
+
+    # Resources
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+
+    # Storage (optional - use emptyDir for lab)
+    storageSpec: {}
+    #   volumeClaimTemplate:
+    #     spec:
+    #       storageClassName: standard
+    #       accessModes: ["ReadWriteOnce"]
+    #       resources:
+    #         requests:
+    #           storage: 20Gi
+
+    # Additional scrape configs for demo-app
+    additionalScrapeConfigs:
+      - job_name: 'demo-app-pods'
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+                - demo-app
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            action: replace
+            target_label: pod
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            action: replace
+            target_label: app
+          - source_labels: [__meta_kubernetes_pod_label_rollouts_pod_template_hash]
+            action: replace
+            target_label: rollouts_pod_template_hash
+          - source_labels: [__meta_kubernetes_pod_label_version]
+            action: replace
+            target_label: version
+
+  service:
+    type: ClusterIP
+    port: 9090
+
+# Grafana configuration
+grafana:
+  enabled: true
+
+  adminPassword: admin
+
+  # Sidecar for dashboards
+  sidecar:
+    dashboards:
+      enabled: true
+      searchNamespace: ALL
+      label: grafana_dashboard
+      folderAnnotation: grafana_folder
+      provider:
+        foldersFromFilesStructure: true
+    datasources:
+      enabled: true
+      searchNamespace: ALL
+
+  # Additional datasources
+  additionalDataSources: []
+
+  # Grafana.ini settings
+  grafana.ini:
+    server:
+      root_url: "%(protocol)s://%(domain)s/"
+    auth.anonymous:
+      enabled: true
+      org_role: Viewer
+    dashboards:
+      default_home_dashboard_path: /var/lib/grafana/dashboards/default/argo-rollouts.json
+
+  # Resources
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  service:
+    type: ClusterIP
+    port: 80
+
+  # Ingress (optional)
+  ingress:
+    enabled: false
+    # ingressClassName: nginx
+    # hosts:
+    #   - grafana.local
+
+# Alertmanager configuration
+alertmanager:
+  enabled: true
+
+  alertmanagerSpec:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+
+  config:
+    global:
+      resolve_timeout: 5m
+    route:
+      group_by: ['alertname', 'namespace']
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+      receiver: 'null'
+      routes:
+        - match:
+            alertname: Watchdog
+          receiver: 'null'
+        - match:
+            severity: critical
+          receiver: 'null'
+    receivers:
+      - name: 'null'
+
+# Node Exporter
+nodeExporter:
+  enabled: true
+
+# Kube State Metrics
+kubeStateMetrics:
+  enabled: true
+
+# Prometheus Operator
+prometheusOperator:
+  enabled: true
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# Default rules (alerting rules)
+defaultRules:
+  create: true
+  rules:
+    alertmanager: true
+    etcd: false  # Disable for minikube/kind
+    configReloaders: true
+    general: true
+    k8s: true
+    kubeApiserverAvailability: false  # Disable for minikube/kind
+    kubeApiserverBurnrate: false
+    kubeApiserverHistogram: false
+    kubeApiserverSlos: false
+    kubeControllerManager: false
+    kubelet: true
+    kubeProxy: false
+    kubePrometheusGeneral: true
+    kubePrometheusNodeRecording: true
+    kubernetesApps: true
+    kubernetesResources: true
+    kubernetesStorage: true
+    kubernetesSystem: true
+    kubeSchedulerAlerting: false
+    kubeSchedulerRecording: false
+    kubeStateMetrics: true
+    network: true
+    node: true
+    nodeExporterAlerting: true
+    nodeExporterRecording: true
+    prometheus: true
+    prometheusOperator: true
+
+# Disable components not needed for local dev
+kubeControllerManager:
+  enabled: false
+kubeEtcd:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeProxy:
+  enabled: false

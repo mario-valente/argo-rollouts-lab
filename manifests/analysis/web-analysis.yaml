@@ -1,0 +1,99 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: web-analysis
+  namespace: demo-app
+spec:
+  args:
+    - name: service-url
+      value: "http://demo-app-canary.demo-app.svc.cluster.local"
+  metrics:
+    # HTTP health check using web provider
+    - name: http-health-check
+      interval: 10s
+      count: 5
+      successCondition: result.status == "ok"
+      failureCondition: result.status == "error"
+      failureLimit: 2
+      provider:
+        web:
+          url: "{{args.service-url}}/health"
+          headers:
+            - key: Accept
+              value: application/json
+          jsonPath: "{$.status}"
+          timeoutSeconds: 10
+
+    # API response validation
+    - name: api-validation
+      interval: 15s
+      count: 3
+      successCondition: result.version != ""
+      failureLimit: 1
+      provider:
+        web:
+          url: "{{args.service-url}}/api/info"
+          headers:
+            - key: Accept
+              value: application/json
+          jsonPath: "{$.version}"
+          timeoutSeconds: 10
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: job-analysis
+  namespace: demo-app
+spec:
+  args:
+    - name: service-name
+  metrics:
+    # Run a Kubernetes Job to perform custom validation
+    - name: custom-validation-job
+      count: 1
+      failureLimit: 0
+      provider:
+        job:
+          spec:
+            backoffLimit: 1
+            template:
+              spec:
+                restartPolicy: Never
+                containers:
+                  - name: validator
+                    image: curlimages/curl:8.4.0
+                    command:
+                      - /bin/sh
+                      - -c
+                      - |
+                        set -e
+                        echo "Running validation tests..."
+
+                        # Test health endpoint
+                        response=$(curl -s -o /dev/null -w "%{http_code}" http://{{args.service-name}}.demo-app.svc.cluster.local/health)
+                        if [ "$response" != "200" ]; then
+                          echo "Health check failed: $response"
+                          exit 1
+                        fi
+                        echo "Health check passed"
+
+                        # Test API endpoint
+                        response=$(curl -s http://{{args.service-name}}.demo-app.svc.cluster.local/api/info)
+                        if ! echo "$response" | grep -q "version"; then
+                          echo "API check failed"
+                          exit 1
+                        fi
+                        echo "API check passed"
+
+                        # Test processing endpoint
+                        for i in 1 2 3 4 5; do
+                          response=$(curl -s -o /dev/null -w "%{http_code}" http://{{args.service-name}}.demo-app.svc.cluster.local/api/process)
+                          if [ "$response" != "200" ]; then
+                            echo "Process endpoint failed on attempt $i: $response"
+                            exit 1
+                          fi
+                        done
+                        echo "Process endpoint passed all checks"
+
+                        echo "All validation tests passed!"
+                        exit 0

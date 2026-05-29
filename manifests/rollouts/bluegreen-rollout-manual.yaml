@@ -1,0 +1,119 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: demo-app-bluegreen-manual
+  namespace: demo-app
+  labels:
+    app: demo-app-bg-manual
+    strategy: blue-green-manual
+spec:
+  replicas: 3
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: demo-app-bg-manual
+  template:
+    metadata:
+      labels:
+        app: demo-app-bg-manual
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: demo-app
+          image: demo-app:v1
+          ports:
+            - containerPort: 8080
+          env:
+            - name: APP_VERSION
+              value: "v1"
+            - name: APP_COLOR
+              value: "blue"
+            - name: ERROR_RATE
+              value: "0.0"
+            - name: LATENCY_MS
+              value: "50"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+  strategy:
+    blueGreen:
+      # Service that receives production traffic
+      activeService: demo-app-bg-manual-active
+
+      # Service that receives preview traffic
+      previewService: demo-app-bg-manual-preview
+
+      # MANUAL promotion - requires explicit approval
+      autoPromotionEnabled: false
+
+      # Preview ReplicaSet scale
+      previewReplicaCount: 2
+
+      # Scale down delay after rollback
+      scaleDownDelaySeconds: 60
+
+      # Abort scale down delay
+      abortScaleDownDelaySeconds: 30
+
+      # Pre-promotion analysis
+      prePromotionAnalysis:
+        templates:
+          - templateName: bluegreen-pre-analysis
+        args:
+          - name: service-name
+            value: demo-app-bg-manual-preview
+
+      # Anti-affinity
+      antiAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-app-bg-manual-active
+  namespace: demo-app
+  labels:
+    app: demo-app-bg-manual
+    role: active
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 8080
+  selector:
+    app: demo-app-bg-manual
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-app-bg-manual-preview
+  namespace: demo-app
+  labels:
+    app: demo-app-bg-manual
+    role: preview
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 8080
+  selector:
+    app: demo-app-bg-manual

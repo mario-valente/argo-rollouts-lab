@@ -1,0 +1,53 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: latency-analysis
+  namespace: demo-app
+spec:
+  args:
+    - name: service-name
+    - name: latency-threshold-ms
+      value: "500"
+  metrics:
+    # P99 Latency check
+    - name: p99-latency
+      interval: 30s
+      count: 5
+      successCondition: result[0] <= {{args.latency-threshold-ms}}
+      failureCondition: result[0] > {{args.latency-threshold-ms}} * 1.5
+      failureLimit: 2
+      provider:
+        prometheus:
+          address: http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090
+          query: |
+            histogram_quantile(0.99,
+              sum(rate(http_request_duration_seconds_bucket{service="{{args.service-name}}"}[2m])) by (le)
+            ) * 1000
+
+    # P95 Latency check
+    - name: p95-latency
+      interval: 30s
+      count: 5
+      successCondition: result[0] <= {{args.latency-threshold-ms}} * 0.8
+      failureLimit: 3
+      provider:
+        prometheus:
+          address: http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090
+          query: |
+            histogram_quantile(0.95,
+              sum(rate(http_request_duration_seconds_bucket{service="{{args.service-name}}"}[2m])) by (le)
+            ) * 1000
+
+    # Average latency
+    - name: avg-latency
+      interval: 30s
+      count: 5
+      successCondition: result[0] <= {{args.latency-threshold-ms}} * 0.5
+      failureLimit: 3
+      provider:
+        prometheus:
+          address: http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090
+          query: |
+            sum(rate(http_request_duration_seconds_sum{service="{{args.service-name}}"}[2m]))
+            /
+            sum(rate(http_request_duration_seconds_count{service="{{args.service-name}}"}[2m])) * 1000

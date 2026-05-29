@@ -1,0 +1,63 @@
+# NGINX Ingress Controller Helm Values
+# Chart: ingress-nginx/ingress-nginx
+
+controller:
+  # Enable metrics for Prometheus
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+      namespace: monitoring
+      additionalLabels:
+        release: prometheus
+
+  # Resources
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # Service type (LoadBalancer for cloud, NodePort for local)
+  service:
+    type: NodePort
+    nodePorts:
+      http: 30080
+      https: 30443
+
+  # For local development with minikube/kind
+  hostPort:
+    enabled: true
+    ports:
+      http: 80
+      https: 443
+
+  # Ingress class
+  ingressClassResource:
+    name: nginx
+    enabled: true
+    default: true
+    controllerValue: "k8s.io/ingress-nginx"
+
+  # Enable snippet annotations (needed for canary)
+  allowSnippetAnnotations: true
+
+  # Config for canary deployments
+  config:
+    use-forwarded-headers: "true"
+    compute-full-forwarded-for: "true"
+    use-proxy-protocol: "false"
+
+  # Admission webhooks
+  admissionWebhooks:
+    enabled: true
+
+# Default backend
+defaultBackend:
+  enabled: false
+
+# ServiceAccount
+serviceAccount:
+  create: true

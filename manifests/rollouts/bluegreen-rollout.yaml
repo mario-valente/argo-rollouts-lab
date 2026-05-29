@@ -1,0 +1,158 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: demo-app-bluegreen
+  namespace: demo-app
+  labels:
+    app: demo-app-bg
+    strategy: blue-green
+spec:
+  replicas: 3
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: demo-app-bg
+  template:
+    metadata:
+      labels:
+        app: demo-app-bg
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: demo-app
+          image: demo-app:v1
+          ports:
+            - containerPort: 8080
+          env:
+            - name: APP_VERSION
+              value: "v1"
+            - name: APP_COLOR
+              value: "blue"
+            - name: ERROR_RATE
+              value: "0.0"
+            - name: LATENCY_MS
+              value: "50"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+  strategy:
+    blueGreen:
+      activeService: demo-app-bg-active
+      previewService: demo-app-bg-preview
+      autoPromotionEnabled: true
+      autoPromotionSeconds: 60
+      scaleDownDelaySeconds: 30
+      scaleDownDelayRevisionLimit: 2
+
+      prePromotionAnalysis:
+        templates:
+          - templateName: bluegreen-pre-analysis
+        args:
+          - name: service-name
+            value: demo-app-bg-preview
+
+      postPromotionAnalysis:
+        templates:
+          - templateName: bluegreen-post-analysis
+        args:
+          - name: service-name
+            value: demo-app-bg-active
+
+      antiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          weight: 100
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-app-bg-active
+  namespace: demo-app
+  labels:
+    app: demo-app-bg
+    role: active
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 8080
+      name: http
+  selector:
+    app: demo-app-bg
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-app-bg-preview
+  namespace: demo-app
+  labels:
+    app: demo-app-bg
+    role: preview
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 8080
+      name: http
+  selector:
+    app: demo-app-bg
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: demo-app-bg-ingress
+  namespace: demo-app
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+spec:
+  rules:
+    - host: demo-app-bg.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: demo-app-bg-active
+                port:
+                  number: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: demo-app-bg-preview-ingress
+  namespace: demo-app
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+spec:
+  rules:
+    - host: demo-app-bg-preview.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: demo-app-bg-preview
+                port:
+                  number: 80

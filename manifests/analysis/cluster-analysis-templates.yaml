@@ -1,0 +1,150 @@
+# ClusterAnalysisTemplates - Available across all namespaces
+---
+apiVersion: argoproj.io/v1alpha1
+kind: ClusterAnalysisTemplate
+metadata:
+  name: global-success-rate
+spec:
+  args:
+    - name: namespace
+    - name: service-name
+    - name: success-threshold
+      value: "0.95"
+  metrics:
+    - name: success-rate
+      interval: 30s
+      count: 5
+      successCondition: result[0] >= {{args.success-threshold}}
+      failureCondition: result[0] < 0.90
+      failureLimit: 2
+      provider:
+        prometheus:
+          address: http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090
+          query: |
+            sum(rate(http_requests_total{namespace="{{args.namespace}}", service="{{args.service-name}}"}[2m]))
+            /
+            (sum(rate(http_requests_total{namespace="{{args.namespace}}", service="{{args.service-name}}"}[2m])) +
+             sum(rate(http_errors_total{namespace="{{args.namespace}}", service="{{args.service-name}}"}[2m])))
+---
+apiVersion: argoproj.io/v1alpha1
+kind: ClusterAnalysisTemplate
+metadata:
+  name: global-error-budget
+spec:
+  args:
+    - name: namespace
+    - name: service-name
+    - name: error-budget-percent
+      value: "1"
+  metrics:
+    - name: error-budget-remaining
+      interval: 60s
+      count: 3
+      # Success if we're within error budget
+      successCondition: result[0] > 0
+      failureCondition: result[0] <= 0
+      failureLimit: 1
+      provider:
+        prometheus:
+          address: http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090
+          query: |
+            (
+              {{args.error-budget-percent}} / 100
+            ) - (
+              sum(rate(http_errors_total{namespace="{{args.namespace}}", service="{{args.service-name}}"}[30m]))
+              /
+              (sum(rate(http_requests_total{namespace="{{args.namespace}}", service="{{args.service-name}}"}[30m])) + 0.001)
+            )
+---
+apiVersion: argoproj.io/v1alpha1
+kind: ClusterAnalysisTemplate
+metadata:
+  name: global-resource-usage
+spec:
+  args:
+    - name: namespace
+    - name: deployment-name
+    - name: cpu-threshold
+      value: "80"
+    - name: memory-threshold
+      value: "80"
+  metrics:
+    - name: cpu-usage
+      interval: 30s
+      count: 3
+      successCondition: result[0] < {{args.cpu-threshold}}
+      failureCondition: result[0] >= 95
+      failureLimit: 2
+      provider:
+        prometheus:
+          address: http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090
+          query: |
+            100 * (
+              sum(rate(container_cpu_usage_seconds_total{namespace="{{args.namespace}}", pod=~"{{args.deployment-name}}.*"}[2m]))
+              /
+              sum(kube_pod_container_resource_limits{namespace="{{args.namespace}}", pod=~"{{args.deployment-name}}.*", resource="cpu"})
+            )
+
+    - name: memory-usage
+      interval: 30s
+      count: 3
+      successCondition: result[0] < {{args.memory-threshold}}
+      failureCondition: result[0] >= 95
+      failureLimit: 2
+      provider:
+        prometheus:
+          address: http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090
+          query: |
+            100 * (
+              sum(container_memory_working_set_bytes{namespace="{{args.namespace}}", pod=~"{{args.deployment-name}}.*"})
+              /
+              sum(kube_pod_container_resource_limits{namespace="{{args.namespace}}", pod=~"{{args.deployment-name}}.*", resource="memory"})
+            )
+---
+apiVersion: argoproj.io/v1alpha1
+kind: ClusterAnalysisTemplate
+metadata:
+  name: global-datadog-analysis
+spec:
+  args:
+    - name: service-name
+    - name: env
+      value: "production"
+  metrics:
+    - name: datadog-error-rate
+      interval: 60s
+      count: 3
+      successCondition: default(result, 0) <= 0.05
+      failureCondition: default(result, 0) > 0.10
+      failureLimit: 2
+      provider:
+        datadog:
+          interval: 5m
+          query: |
+            avg:trace.http.request.errors{service:{{args.service-name}},env:{{args.env}}}
+            /
+            avg:trace.http.request.hits{service:{{args.service-name}},env:{{args.env}}}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: ClusterAnalysisTemplate
+metadata:
+  name: global-newrelic-analysis
+spec:
+  args:
+    - name: app-name
+    - name: apdex-threshold
+      value: "0.9"
+  metrics:
+    - name: newrelic-apdex
+      interval: 60s
+      count: 3
+      successCondition: result >= {{args.apdex-threshold}}
+      failureCondition: result < 0.7
+      failureLimit: 2
+      provider:
+        newRelic:
+          profile: default
+          query: |
+            SELECT apdex(duration, 0.5) FROM Transaction
+            WHERE appName = '{{args.app-name}}'
+            SINCE 5 minutes ago

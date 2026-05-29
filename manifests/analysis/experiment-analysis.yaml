@@ -1,0 +1,75 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: experiment-comparison-analysis
+  namespace: demo-app
+spec:
+  args:
+    - name: canary-hash
+    - name: baseline-hash
+  metrics:
+    # Compare error rates between canary and baseline
+    - name: error-rate-comparison
+      interval: 30s
+      count: 5
+      # Canary error rate should not be more than 1.5x baseline
+      successCondition: |
+        result[0] <= 1.5 || result[1] == 0
+      failureCondition: |
+        result[0] > 2.0
+      failureLimit: 2
+      provider:
+        prometheus:
+          address: http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090
+          query: |
+            (
+              sum(rate(http_errors_total{rollouts_pod_template_hash="{{args.canary-hash}}"}[2m]))
+              /
+              (sum(rate(http_requests_total{rollouts_pod_template_hash="{{args.canary-hash}}"}[2m])) + 0.001)
+            )
+            /
+            (
+              sum(rate(http_errors_total{rollouts_pod_template_hash="{{args.baseline-hash}}"}[2m]))
+              /
+              (sum(rate(http_requests_total{rollouts_pod_template_hash="{{args.baseline-hash}}"}[2m])) + 0.001)
+              + 0.001
+            )
+
+    # Compare latency between canary and baseline
+    - name: latency-comparison
+      interval: 30s
+      count: 5
+      # Canary P95 latency should not be more than 1.3x baseline
+      successCondition: result[0] <= 1.3
+      failureCondition: result[0] > 2.0
+      failureLimit: 2
+      provider:
+        prometheus:
+          address: http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090
+          query: |
+            (
+              histogram_quantile(0.95,
+                sum(rate(http_request_duration_seconds_bucket{rollouts_pod_template_hash="{{args.canary-hash}}"}[2m])) by (le)
+              )
+            )
+            /
+            (
+              histogram_quantile(0.95,
+                sum(rate(http_request_duration_seconds_bucket{rollouts_pod_template_hash="{{args.baseline-hash}}"}[2m])) by (le)
+              ) + 0.001
+            )
+
+    # Absolute canary error rate check
+    - name: canary-absolute-error-rate
+      interval: 30s
+      count: 5
+      successCondition: result[0] <= 0.05
+      failureCondition: result[0] > 0.10
+      failureLimit: 2
+      provider:
+        prometheus:
+          address: http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090
+          query: |
+            sum(rate(http_errors_total{rollouts_pod_template_hash="{{args.canary-hash}}"}[2m]))
+            /
+            (sum(rate(http_requests_total{rollouts_pod_template_hash="{{args.canary-hash}}"}[2m])) + 0.001)

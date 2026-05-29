@@ -1,0 +1,73 @@
+# Argo Rollouts Helm Values
+# Chart: argo/argo-rollouts
+
+controller:
+  # Enable metrics for Prometheus scraping
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+      namespace: monitoring
+      additionalLabels:
+        release: prometheus
+
+  # Resource limits
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # Replicas for HA
+  replicas: 1
+
+  # Extra args for controller
+  extraArgs:
+    - --leader-elect
+
+# Dashboard configuration
+dashboard:
+  enabled: true
+
+  service:
+    type: ClusterIP
+    port: 3100
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+  # Ingress for dashboard (optional)
+  ingress:
+    enabled: false
+    # ingressClassName: nginx
+    # hosts:
+    #   - argo-rollouts.local
+    # tls:
+    #   - secretName: argo-rollouts-tls
+    #     hosts:
+    #       - argo-rollouts.local
+
+# Service Account
+serviceAccount:
+  create: true
+  name: argo-rollouts
+
+# RBAC
+rbac:
+  create: true
+
+# Pod disruption budget
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+# Notifications controller (optional)
+notifications:
+  enabled: false

@@ -1,0 +1,55 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: success-rate-analysis
+  namespace: demo-app
+spec:
+  args:
+    - name: service-name
+  metrics:
+    - name: success-rate
+      # Run every 30 seconds
+      interval: 30s
+      # Minimum of 5 measurements for conclusive result
+      count: 5
+      # Success if at least 95% of requests are successful
+      successCondition: result[0] >= 0.95
+      # Fail if less than 90% success rate
+      failureCondition: result[0] < 0.90
+      # Allow 2 failed measurements before failing
+      failureLimit: 2
+      # Require 3 consecutive successes
+      consecutiveSuccessLimit: 3
+      provider:
+        prometheus:
+          address: http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090
+          query: |
+            sum(rate(http_requests_total{service="{{args.service-name}}"}[2m]))
+            /
+            (sum(rate(http_requests_total{service="{{args.service-name}}"}[2m])) +
+             sum(rate(http_errors_total{service="{{args.service-name}}"}[2m])))
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: error-rate-analysis
+  namespace: demo-app
+spec:
+  args:
+    - name: service-name
+  metrics:
+    - name: error-rate
+      interval: 30s
+      count: 5
+      # Success if error rate is below 5%
+      successCondition: result[0] <= 0.05
+      # Fail immediately if error rate exceeds 10%
+      failureCondition: result[0] > 0.10
+      failureLimit: 2
+      provider:
+        prometheus:
+          address: http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090
+          query: |
+            sum(rate(http_errors_total{service="{{args.service-name}}"}[2m]))
+            /
+            sum(rate(http_requests_total{service="{{args.service-name}}"}[2m]))
