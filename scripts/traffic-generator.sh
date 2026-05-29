@@ -12,7 +12,7 @@ NC='\033[0m'
 # Default values
 RPS=10
 DURATION=300
-SERVICE="demo-app-stable"
+SERVICE="demo-app-canary"
 NAMESPACE="demo-app"
 ENDPOINTS=("/api/info" "/api/process" "/" "/health")
 

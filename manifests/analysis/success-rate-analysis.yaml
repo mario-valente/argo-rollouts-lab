@@ -46,6 +46,7 @@ spec:
       # Fail immediately if error rate exceeds 10%
       failureCondition: result[0] > 0.10
       failureLimit: 2
+      inconclusiveLimit: 3
       provider:
         prometheus:
           address: http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090
